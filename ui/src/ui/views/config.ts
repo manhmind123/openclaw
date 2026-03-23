@@ -818,6 +818,7 @@ export function renderConfig(props: ConfigProps) {
             formMode === "form"
               ? html`
                   <div class="config-search config-search--top">
+                    <div class="config-search__hint">Search by label, full path, enum value, tag, or filters like <code>tag:security</code>, <code>is:advanced</code>, <code>is:secret</code>.</div>
                     <div class="config-search__input-row">
                       <svg
                         class="config-search__icon"
@@ -832,7 +833,7 @@ export function renderConfig(props: ConfigProps) {
                       <input
                         type="text"
                         class="config-search__input"
-                        placeholder="Search settings..."
+                        placeholder="Search settings, paths, tags… (e.g. token tag:security is:advanced)"
                         .value=${props.searchQuery}
                         @input=${(e: Event) =>
                           props.onSearchChange((e.target as HTMLInputElement).value)}

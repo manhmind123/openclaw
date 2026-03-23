@@ -26,7 +26,16 @@ describe("config form search", () => {
   it("parses tag-prefixed query terms", () => {
     const parsed = parseConfigSearchQuery("token tag:security tag:Auth");
     expect(parsed.text).toBe("token");
+    expect(parsed.terms).toEqual(["token"]);
     expect(parsed.tags).toEqual(["security", "auth"]);
+  });
+
+  it("parses advanced and sensitive filters", () => {
+    const parsed = parseConfigSearchQuery("model key is:advanced is:secret");
+    expect(parsed.text).toBe("model key");
+    expect(parsed.terms).toEqual(["model", "key"]);
+    expect(parsed.advancedOnly).toBe(true);
+    expect(parsed.sensitiveOnly).toBe(true);
   });
 
   it("matches fields by tag through ui hints", () => {

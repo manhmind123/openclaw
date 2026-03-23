@@ -101,6 +101,9 @@ type FieldMeta = {
   label: string;
   help?: string;
   tags: string[];
+  pathLabel: string;
+  searchAliases: string[];
+  advanced: boolean;
 };
 
 type SensitiveRenderParams = {
@@ -120,7 +123,10 @@ type SensitiveRenderState = {
 
 export type ConfigSearchCriteria = {
   text: string;
+  terms: string[];
   tags: string[];
+  advancedOnly: boolean;
+  sensitiveOnly: boolean;
 };
 
 function getSensitiveRenderState(params: SensitiveRenderParams): SensitiveRenderState {
@@ -180,19 +186,40 @@ function hasSearchCriteria(criteria: ConfigSearchCriteria | undefined): boolean 
 
 export function parseConfigSearchQuery(query: string): ConfigSearchCriteria {
   const tags: string[] = [];
-  const seen = new Set<string>();
+  const seenTags = new Set<string>();
+  let advancedOnly = false;
+  let sensitiveOnly = false;
   const raw = query.trim();
-  const stripped = raw.replace(/(^|\s)tag:([^\s]+)/gi, (_, leading: string, token: string) => {
+  const stripped = raw.replace(/(^|\s)(tag|is):([^\s]+)/gi, (_, leading: string, prefix: string, token: string) => {
     const normalized = token.trim().toLowerCase();
-    if (normalized && !seen.has(normalized)) {
-      seen.add(normalized);
-      tags.push(normalized);
+    if (!normalized) {
+      return leading;
     }
-    return leading;
+    if (prefix.toLowerCase() === "tag") {
+      if (!seenTags.has(normalized)) {
+        seenTags.add(normalized);
+        tags.push(normalized);
+      }
+      return leading;
+    }
+    if (normalized === "advanced") {
+      advancedOnly = true;
+      return leading;
+    }
+    if (normalized === "sensitive" || normalized === "secret") {
+      sensitiveOnly = true;
+      return leading;
+    }
+    return leading + `${prefix}:${token}`;
   });
+  const text = stripped.trim().toLowerCase();
+  const terms = text ? text.split(/\s+/).filter(Boolean) : [];
   return {
-    text: stripped.trim().toLowerCase(),
+    text,
+    terms,
     tags,
+    advancedOnly,
+    sensitiveOnly,
   };
 }
 
@@ -230,23 +257,31 @@ function resolveFieldMeta(
   const help = hint?.help ?? schema.description;
   const schemaTags = normalizeTags(schema["x-tags"] ?? schema.tags);
   const hintTags = normalizeTags(hint?.tags);
+  const tags = hintTags.length > 0 ? hintTags : schemaTags;
+  const pathSegments = path.filter((segment): segment is string => typeof segment === "string");
+  const pathLabel = pathSegments.join(".");
+  const humanPath = pathSegments.map((segment) => humanize(segment)).join(" ");
+  const searchAliases = normalizeTags((hint as { searchAliases?: unknown } | undefined)?.searchAliases);
+  const advanced = tags.some((tag) => ["advanced", "admin", "power", "expert"].includes(tag.toLowerCase()));
   return {
     label,
     help,
-    tags: hintTags.length > 0 ? hintTags : schemaTags,
+    tags,
+    pathLabel,
+    searchAliases: [humanPath, ...searchAliases].filter(Boolean),
+    advanced,
   };
 }
 
-function matchesText(text: string, candidates: Array<string | undefined>): boolean {
-  if (!text) {
+function matchesTextTerms(terms: string[], candidates: Array<string | undefined>): boolean {
+  if (terms.length === 0) {
     return true;
   }
-  for (const candidate of candidates) {
-    if (candidate && candidate.toLowerCase().includes(text)) {
-      return true;
-    }
-  }
-  return false;
+  const haystack = candidates
+    .filter((candidate): candidate is string => Boolean(candidate))
+    .map((candidate) => candidate.toLowerCase())
+    .join("\n");
+  return terms.every((term) => haystack.includes(term));
 }
 
 function matchesTags(filterTags: string[], fieldTags: string[]): boolean {
@@ -267,30 +302,32 @@ function matchesNodeSelf(params: {
   if (!hasSearchCriteria(criteria)) {
     return true;
   }
-  const { label, help, tags } = resolveFieldMeta(path, schema, hints);
+  const { label, help, tags, pathLabel, searchAliases, advanced } = resolveFieldMeta(path, schema, hints);
   if (!matchesTags(criteria.tags, tags)) {
     return false;
   }
-
-  if (!criteria.text) {
-    return true;
+  if (criteria.advancedOnly && !advanced) {
+    return false;
+  }
+  if (criteria.sensitiveOnly && !hasSensitiveConfigData(undefined, path, hints)) {
+    return false;
   }
 
-  const pathLabel = path
-    .filter((segment): segment is string => typeof segment === "string")
-    .join(".");
   const enumText =
     schema.enum && schema.enum.length > 0
       ? schema.enum.map((value) => String(value)).join(" ")
       : "";
 
-  return matchesText(criteria.text, [
+  return matchesTextTerms(criteria.terms, [
     label,
     help,
     schema.title,
     schema.description,
     pathLabel,
     enumText,
+    ...tags,
+    ...searchAliases,
+    advanced ? "advanced admin power expert" : undefined,
   ]);
 }
 
@@ -380,13 +417,16 @@ export function matchesNodeSearch(params: {
   return false;
 }
 
-function renderTags(tags: string[]): TemplateResult | typeof nothing {
-  if (tags.length === 0) {
+function renderTags(tags: string[], advanced = false): TemplateResult | typeof nothing {
+  const displayTags = advanced && !tags.some((tag) => tag.toLowerCase() === "advanced")
+    ? ["advanced", ...tags]
+    : tags;
+  if (displayTags.length === 0) {
     return nothing;
   }
   return html`
     <div class="cfg-tags">
-      ${tags.map((tag) => html`<span class="cfg-tag">${tag}</span>`)}
+      ${displayTags.map((tag) => html`<span class="cfg-tag${tag.toLowerCase() === "advanced" ? " cfg-tag--advanced" : ""}">${tag}</span>`)}
     </div>
   `;
 }
@@ -457,7 +497,10 @@ export function renderNode(params: {
         <div class="cfg-field">
           ${showLabel ? html`<label class="cfg-field__label">${label}</label>` : nothing}
           ${help ? html`<div class="cfg-field__help">${help}</div>` : nothing}
-          ${renderTags(tags)}
+          <div class="cfg-field__meta-row">
+            ${renderTags(tags, advanced)}
+            ${advanced ? html`<span class="cfg-field__badge cfg-field__badge--advanced">Advanced</span>` : nothing}
+          </div>
           <div class="cfg-segmented">
             ${literals.map(
               (lit) => html`
@@ -537,7 +580,10 @@ export function renderNode(params: {
         <div class="cfg-field">
           ${showLabel ? html`<label class="cfg-field__label">${label}</label>` : nothing}
           ${help ? html`<div class="cfg-field__help">${help}</div>` : nothing}
-          ${renderTags(tags)}
+          <div class="cfg-field__meta-row">
+            ${renderTags(tags, advanced)}
+            ${advanced ? html`<span class="cfg-field__badge cfg-field__badge--advanced">Advanced</span>` : nothing}
+          </div>
           <div class="cfg-segmented">
             ${options.map(
               (opt) => html`
@@ -581,7 +627,8 @@ export function renderNode(params: {
         <div class="cfg-toggle-row__content">
           <span class="cfg-toggle-row__label">${label}</span>
           ${help ? html`<span class="cfg-toggle-row__help">${help}</span>` : nothing}
-          ${renderTags(tags)}
+          ${renderTags(tags, advanced)}
+          ${advanced ? html`<span class="cfg-field__badge cfg-field__badge--advanced">Advanced</span>` : nothing}
         </div>
         <div class="cfg-toggle">
           <input
@@ -632,7 +679,7 @@ function renderTextInput(params: {
   const { schema, value, path, hints, disabled, onPatch, inputType } = params;
   const showLabel = params.showLabel ?? true;
   const hint = hintForPath(path, hints);
-  const { label, help, tags } = resolveFieldMeta(path, schema, hints);
+  const { label, help, tags, advanced } = resolveFieldMeta(path, schema, hints);
   const sensitiveState = getSensitiveRenderState({
     path,
     value,
@@ -655,6 +702,10 @@ function renderTextInput(params: {
       ${help ? html`<div class="cfg-field__help">${help}</div>` : nothing}
       ${renderTags(tags)}
       <div class="cfg-input-wrap">
+        <div class="cfg-field__meta-row">
+          ${renderTags(tags, advanced)}
+          ${advanced ? html`<span class="cfg-field__badge cfg-field__badge--advanced">Advanced</span>` : nothing}
+        </div>
         <input
           type=${effectiveInputType}
           class="cfg-input${sensitiveState.isRedacted ? " cfg-input--redacted" : ""}"
@@ -727,7 +778,7 @@ function renderNumberInput(params: {
 }): TemplateResult {
   const { schema, value, path, hints, disabled, onPatch } = params;
   const showLabel = params.showLabel ?? true;
-  const { label, help, tags } = resolveFieldMeta(path, schema, hints);
+  const { label, help, tags, advanced } = resolveFieldMeta(path, schema, hints);
   const displayValue = value ?? schema.default ?? "";
   const numValue = typeof displayValue === "number" ? displayValue : 0;
 
@@ -735,7 +786,10 @@ function renderNumberInput(params: {
     <div class="cfg-field">
       ${showLabel ? html`<label class="cfg-field__label">${label}</label>` : nothing}
       ${help ? html`<div class="cfg-field__help">${help}</div>` : nothing}
-      ${renderTags(tags)}
+      <div class="cfg-field__meta-row">
+        ${renderTags(tags, advanced)}
+        ${advanced ? html`<span class="cfg-field__badge cfg-field__badge--advanced">Advanced</span>` : nothing}
+      </div>
       <div class="cfg-number">
         <button
           type="button"
@@ -778,7 +832,7 @@ function renderSelect(params: {
 }): TemplateResult {
   const { schema, value, path, hints, disabled, options, onPatch } = params;
   const showLabel = params.showLabel ?? true;
-  const { label, help, tags } = resolveFieldMeta(path, schema, hints);
+  const { label, help, tags, advanced } = resolveFieldMeta(path, schema, hints);
   const resolvedValue = value ?? schema.default;
   const currentIndex = options.findIndex(
     (opt) => opt === resolvedValue || String(opt) === String(resolvedValue),
@@ -789,7 +843,10 @@ function renderSelect(params: {
     <div class="cfg-field">
       ${showLabel ? html`<label class="cfg-field__label">${label}</label>` : nothing}
       ${help ? html`<div class="cfg-field__help">${help}</div>` : nothing}
-      ${renderTags(tags)}
+      <div class="cfg-field__meta-row">
+        ${renderTags(tags, advanced)}
+        ${advanced ? html`<span class="cfg-field__badge cfg-field__badge--advanced">Advanced</span>` : nothing}
+      </div>
       <select
         class="cfg-select"
         ?disabled=${disabled}
@@ -824,7 +881,7 @@ function renderJsonTextarea(params: {
 }): TemplateResult {
   const { schema, value, path, hints, disabled, onPatch } = params;
   const showLabel = params.showLabel ?? true;
-  const { label, help, tags } = resolveFieldMeta(path, schema, hints);
+  const { label, help, tags, advanced } = resolveFieldMeta(path, schema, hints);
   const fallback = jsonValue(value);
   const sensitiveState = getSensitiveRenderState({
     path,
@@ -839,7 +896,10 @@ function renderJsonTextarea(params: {
     <div class="cfg-field">
       ${showLabel ? html`<label class="cfg-field__label">${label}</label>` : nothing}
       ${help ? html`<div class="cfg-field__help">${help}</div>` : nothing}
-      ${renderTags(tags)}
+      <div class="cfg-field__meta-row">
+        ${renderTags(tags, advanced)}
+        ${advanced ? html`<span class="cfg-field__badge cfg-field__badge--advanced">Advanced</span>` : nothing}
+      </div>
       <div class="cfg-input-wrap">
         <textarea
           class="cfg-textarea${sensitiveState.isRedacted ? " cfg-textarea--redacted" : ""}"
@@ -909,7 +969,7 @@ function renderObject(params: {
     onToggleSensitivePath,
   } = params;
   const showLabel = params.showLabel ?? true;
-  const { label, help, tags } = resolveFieldMeta(path, schema, hints);
+  const { label, help, tags, advanced } = resolveFieldMeta(path, schema, hints);
   const selfMatched =
     searchCriteria && hasSearchCriteria(searchCriteria)
       ? matchesNodeSelf({ schema, path, hints, criteria: searchCriteria })
@@ -997,7 +1057,8 @@ function renderObject(params: {
       <summary class="cfg-object__header">
         <span class="cfg-object__title-wrap">
           <span class="cfg-object__title">${label}</span>
-          ${renderTags(tags)}
+          ${renderTags(tags, advanced)}
+          ${advanced ? html`<span class="cfg-field__badge cfg-field__badge--advanced">Advanced</span>` : nothing}
         </span>
         <span class="cfg-object__chevron">${icons.chevronDown}</span>
       </summary>
@@ -1037,7 +1098,7 @@ function renderArray(params: {
     onToggleSensitivePath,
   } = params;
   const showLabel = params.showLabel ?? true;
-  const { label, help, tags } = resolveFieldMeta(path, schema, hints);
+  const { label, help, tags, advanced } = resolveFieldMeta(path, schema, hints);
   const selfMatched =
     searchCriteria && hasSearchCriteria(searchCriteria)
       ? matchesNodeSelf({ schema, path, hints, criteria: searchCriteria })
@@ -1061,7 +1122,8 @@ function renderArray(params: {
       <div class="cfg-array__header">
         <div class="cfg-array__title">
           ${showLabel ? html`<span class="cfg-array__label">${label}</span>` : nothing}
-          ${renderTags(tags)}
+          ${renderTags(tags, advanced)}
+          ${advanced ? html`<span class="cfg-field__badge cfg-field__badge--advanced">Advanced</span>` : nothing}
         </div>
         <span class="cfg-array__count">${arr.length} item${arr.length !== 1 ? "s" : ""}</span>
         <button
