@@ -87,6 +87,10 @@ export function renderAgentOverview(params: {
 
       <div class="agents-overview-grid" style="margin-top: 16px;">
         <div class="agent-kv">
+          <div class="label">Status</div>
+          <div>${agent.configured === false ? "offline secondary" : agent.enabled === false ? "disabled" : "online"}</div>
+        </div>
+        <div class="agent-kv">
           <div class="label">Workspace</div>
           <div>
             <button

@@ -1262,6 +1262,13 @@ export function renderApp(state: AppViewState) {
                     }
                     updateConfigFormValue(state, ["agents", "defaultId"], agentId);
                   },
+                  onToggleEnabled: (agentId, enabled) => {
+                    const index = ensureAgentIndex(agentId);
+                    if (index < 0) {
+                      return;
+                    }
+                    updateConfigFormValue(state, ["agents", "list", index, "enabled"], enabled);
+                  },
                 }),
               )
             : nothing

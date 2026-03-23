@@ -28,6 +28,10 @@ export const AgentSummarySchema = Type.Object(
         { additionalProperties: false },
       ),
     ),
+    configured: Type.Optional(Type.Boolean()),
+    online: Type.Optional(Type.Boolean()),
+    enabled: Type.Optional(Type.Boolean()),
+    offlineReason: Type.Optional(Type.String()),
   },
   { additionalProperties: false },
 );

@@ -527,7 +527,7 @@ export function listAgentsForGateway(cfg: OpenClawConfig): {
   const scope = cfg.session?.scope ?? "per-sender";
   const configuredById = new Map<
     string,
-    { name?: string; identity?: GatewayAgentRow["identity"] }
+    { name?: string; identity?: GatewayAgentRow["identity"]; enabled?: boolean }
   >();
   for (const entry of cfg.agents?.list ?? []) {
     if (!entry?.id) {
@@ -549,6 +549,7 @@ export function listAgentsForGateway(cfg: OpenClawConfig): {
     configuredById.set(normalizeAgentId(entry.id), {
       name: typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : undefined,
       identity,
+      enabled: entry.enabled !== false,
     });
   }
   const explicitIds = new Set(
@@ -556,19 +557,23 @@ export function listAgentsForGateway(cfg: OpenClawConfig): {
       .map((entry) => (entry?.id ? normalizeAgentId(entry.id) : ""))
       .filter(Boolean),
   );
-  const allowedIds = explicitIds.size > 0 ? new Set([...explicitIds, defaultId]) : null;
-  let agentIds = listConfiguredAgentIds(cfg).filter((id) =>
-    allowedIds ? allowedIds.has(id) : true,
-  );
-  if (mainKey && !agentIds.includes(mainKey) && (!allowedIds || allowedIds.has(mainKey))) {
+  let agentIds = listConfiguredAgentIds(cfg);
+  if (mainKey && !agentIds.includes(mainKey)) {
     agentIds = [...agentIds, mainKey];
   }
-  const agents = agentIds.map((id) => {
+  const uniqueAgentIds = Array.from(new Set(agentIds));
+  const agents = uniqueAgentIds.map((id) => {
     const meta = configuredById.get(id);
+    const configured = explicitIds.has(id);
+    const enabled = meta?.enabled ?? true;
     return {
       id,
       name: meta?.name,
       identity: meta?.identity,
+      configured,
+      enabled,
+      online: configured && enabled,
+      offlineReason: configured ? (enabled ? undefined : "disabled") : "not configured in agents.list",
     };
   });
   return { defaultId, mainKey, scope, agents };

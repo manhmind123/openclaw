@@ -104,6 +104,7 @@ export type AgentsProps = {
   onAgentSkillsClear: (agentId: string) => void;
   onAgentSkillsDisableAll: (agentId: string) => void;
   onSetDefault: (agentId: string) => void;
+  onToggleEnabled: (agentId: string, enabled: boolean) => void;
 };
 
 export function renderAgents(props: AgentsProps) {
@@ -152,7 +153,7 @@ export function renderAgents(props: AgentsProps) {
                     : agents.map(
                         (agent) => html`
                         <option value=${agent.id} ?selected=${agent.id === selectedId}>
-                          ${normalizeAgentLabel(agent)}${agentBadgeText(agent.id, defaultId) ? ` (${agentBadgeText(agent.id, defaultId)})` : ""}
+                          ${normalizeAgentLabel(agent)}${agentBadgeText(agent.id, defaultId, agent) ? ` (${agentBadgeText(agent.id, defaultId, agent)})` : ""}
                         </option>
                       `,
                       )
@@ -188,6 +189,15 @@ export function renderAgents(props: AgentsProps) {
                                     }}
                                   >
                                     ${defaultId && selectedAgent.id === defaultId ? "Already default" : "Set as default"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    @click=${() => {
+                                      props.onToggleEnabled(selectedAgent.id, selectedAgent.enabled === false);
+                                      actionsMenuOpen = false;
+                                    }}
+                                  >
+                                    ${selectedAgent.enabled === false ? "Enable agent" : "Disable agent"}
                                   </button>
                                 </div>
                               `

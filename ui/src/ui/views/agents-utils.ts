@@ -268,8 +268,23 @@ export function resolveAgentEmoji(
   return "";
 }
 
-export function agentBadgeText(agentId: string, defaultId: string | null) {
-  return defaultId && agentId === defaultId ? "default" : null;
+export function agentBadgeText(
+  agentId: string,
+  defaultId: string | null,
+  agent?: { configured?: boolean; online?: boolean; enabled?: boolean },
+) {
+  const badges: string[] = [];
+  if (defaultId && agentId === defaultId) {
+    badges.push("default");
+  }
+  if (agent?.configured === false) {
+    badges.push("offline");
+  } else if (agent?.enabled === false) {
+    badges.push("disabled");
+  } else if (agent?.online === true) {
+    badges.push("online");
+  }
+  return badges.length > 0 ? badges.join(", ") : null;
 }
 
 export function agentAvatarHue(id: string): number {

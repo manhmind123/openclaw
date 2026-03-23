@@ -64,8 +64,8 @@ describe("loadAgents", () => {
       mainKey: "main",
       scope: "per-sender",
       agents: [
-        { id: "main", name: "main" },
-        { id: "kimi", name: "kimi" },
+        { id: "main", name: "main", configured: true, enabled: true, online: true },
+        { id: "kimi", name: "kimi", configured: true, enabled: true, online: true },
       ],
     });
 
@@ -82,8 +82,8 @@ describe("loadAgents", () => {
       mainKey: "main",
       scope: "per-sender",
       agents: [
-        { id: "main", name: "main" },
-        { id: "kimi", name: "kimi" },
+        { id: "main", name: "main", configured: true, enabled: true, online: true },
+        { id: "kimi", name: "kimi", configured: true, enabled: true, online: true },
       ],
     });
 
@@ -100,8 +100,8 @@ describe("loadAgents", () => {
       mainKey: "main",
       scope: "per-sender",
       agents: [
-        { id: "main", name: "main" },
-        { id: "kimi", name: "kimi" },
+        { id: "main", name: "main", configured: true, enabled: true, online: true },
+        { id: "kimi", name: "kimi", configured: true, enabled: true, online: true },
       ],
     });
 
